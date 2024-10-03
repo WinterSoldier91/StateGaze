@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crash Game Multiplier</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.9-1/crypto-js.js"></script>
+    <style>
+        body {
+            background-color: #121212; /* Dark background */
+            color: #ffffff; /* White text color */
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #444; /* Light border for visibility */
+            border-radius: 5px;
+            background-color: #1e1e1e; /* Slightly lighter dark background for results */
+        }
+        #loading {
+            color: #ffcc00; /* Yellow loading text */
+        }
+        .crash {
+            padding: 5px;
+        }
+        .bom {
+            color: #76ff03; /* Green for good multipliers */
+        }
+        .ruim {
+            color: #ff1744; /* Red for bad multipliers */
+        }
+        #statistics {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #444; /* Light border for visibility */
+            border-radius: 5px;
+            background-color: #1e1e1e; /* Slightly lighter dark background for statistics */
+        }
+        #crashes_count {
+            margin-top: 10px;
+            background-color: #1e1e1e; /* Slightly lighter dark background for crashes count */
+            padding: 5px;
+            border: 1px solid #444; /* Light border for visibility */
+            border-radius: 5px;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+        }
+        input {
+            background-color: #2a2a2a; /* Input background color */
+            color: #ffffff; /* Input text color */
+        }
+        button {
+            background-color: #007bff; /* Button background color */
+            color: #ffffff; /* Button text color */
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3; /* Button hover color */
+        }
+        .hide {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Crash Game Multiplier</h1>
+    <div>
+        <input type="text" id="seed_input" placeholder="Enter seed" />
+        <input type="number" id="amount_input" placeholder="Number of rounds" />
+        <input type="number" id="good_value_input" placeholder="Good multiplier" />
+        <label>
+            <input type="checkbox" id="use_stake_us_block_hash" /> Use US Block Hash
+        </label>
+        <button id="copy_button">Copy Results</button>
+        <button id="send_to_sheet_button">Send to Google Sheet</button> <!-- Button to send data -->
+    </div>
+    
+    <div id="statistics" class="hide"></div>
+    <div id="loading"></div>
+    <div id="results"></div>
+    <div id="crashes_count" class="hide"></div>
+
+    <script>
+        const resultsDiv = document.querySelector('#results');
+        const loadingDiv = document.querySelector('#loading');
+        const statisticsDiv = document.querySelector('#statistics');
+        const seedInput = document.querySelector('#seed_input');
+        const usBlockHashCheckbox = document.querySelector('#use_stake_us_block_hash');
+        const copyButton = document.querySelector('#copy_button');
+        const sendToSheetButton = document.querySelector('#send_to_sheet_button');
+        const crashesCount = document.querySelector('#crashes_count');
+
+        const blockHash = '0000000000000000001b34dc6a1e86083f95500b096231436e9b25cbdd0075c4';
+        const usBlockHash = '000000000000000000066448f2f56069750fc40c718322766b6bdf63fdcf45b8';
+
+        const amountInput = document.querySelector('#amount_input');
+        const goodValueInput = document.querySelector('#good_value_input');
+
+        amountInput.value = localStorage.getItem('amount') ?? 100;
+        goodValueInput.value = localStorage.getItem('goodValue') ?? 2;
+        usBlockHashCheckbox.checked = localStorage.getItem('usBlockHash') == 'true';
+
+        let timeout = null;
+
+        seedInput.addEventListener('keyup', (ev) => {
+            if (ev.key == 'Enter') {
+                ev.preventDefault();
+                OnInputChange();
+            }
+        });
+
+        seedInput.addEventListener('input', (ev) => {
+            OnInputChange();
+        });
+        amountInput.addEventListener('input', (ev) => {
+            OnInputChange();
+            const amount = parseInt(amountInput.value);
+            if (isNaN(amount)) return;
+            localStorage.setItem('amount', amount);
+        });
+        goodValueInput.addEventListener('input', (ev) => {
+            OnInputChange();
+            const goodValue = parseFloat(goodValueInput.value);
+            if (isNaN(goodValue)) return;
+            localStorage.setItem('goodValue', goodValue);
+        });
+        usBlockHashCheckbox.addEventListener('change', (ev) => {
+            OnInputChange();
+            localStorage.setItem('usBlockHash', usBlockHashCheckbox.checked);
+        });
+
+        copyButton.addEventListener('click', (ev) => {
+            copyResultsToClipboard();
+        });
+
+        // Function to send multipliers to Google Sheets
+        sendToSheetButton.addEventListener('click', () => {
+            const url = "https://script.google.com/macros/s/AKfycbyOTUOoq0NxrvwOTECilRF5xGDwYA-v9eaRE94_nwPqDoxw8L1jxcbMzleL-hEpi5XLwQ/exec"; // Replace with your actual Google Apps Script Web App URL
+
+            const multipliers = Array.from(document.querySelectorAll('#results .crash')).map(div => parseFloat(div.textContent));
+
+            if (multipliers.length > 0) {
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        multipliers: multipliers
+                    })
+                })
+                .then(response => response.text())
+                .then(data => {
+                    alert("Data sent successfully: " + data);
+                })
+                .catch((error) => {
+                    console.error('Error:', error);
+                    alert("Failed to send data. Check the console for details.");
+                });
+            } else {
+                alert("No data to send.");
+            }
+        });
+
+        function OnInputChange() {
+            if (!seedInput.value) {
+                loadingDiv.innerHTML = '';
+                return;
+            }
+
+            let seed = seedInput.value;
+            let amount = parseInt(amountInput.value);
+            if (!amount && amount !== 0) amount = 100;
+
+            let goodValue = parseFloat(goodValueInput.value);
+            if (!goodValue && goodValue !== 0) goodValue = 2;
+
+            GetChain(seed, amount, goodValue);
+        }
+
+        function GetChain(seed, amount = 1000, goodValue = 2) {
+            resultsDiv.innerHTML = '';
+
+            let chain = [seed];
+            amount -= 1;
+
+            if (amount < 0) chain = [];
+
+            for (let i = 0; i < amount; i++) {
+                chain.push(
+                    CryptoJS.algo.SHA256.create()
+                        .update(chain[chain.length - 1])
+                        .finalize()
+                        .toString(CryptoJS.enc.Hex)
+                );
+            }
+
+            const seedToPoint = (seed, i) => {
+                const hmac = CryptoJS.algo.HMAC.create(CryptoJS.algo.SHA256, seed);
+                hmac.update(usBlockHashCheckbox.checked ? usBlockHash : blockHash);
+
+                const hex = hmac.finalize().toString(CryptoJS.enc.Hex).substring(0, 8);
+                const dec = parseInt(hex, 16);
+                const f = parseFloat((4294967296 / (dec + 1)) * (1 - 0.01));
+
+                const point = parseFloat((Math.floor(f * 100) / 100).toFixed(2));
+
+                return point;
+            };
+
+            chain = chain.map(seedToPoint);
+
+            let goodCount = 0;
+            let totalCount = chain.length;
+
+            for (let value of chain) {
+                let multiplier = value;
+
+                const isGood = multiplier >= goodValue;
+                if (isGood) goodCount++;
+
+                const div = document.createElement('div');
+                div.textContent = multiplier.toFixed(2);
+                div.className = `crash ${isGood ? 'bom' : 'ruim'}`;
+                resultsDiv.appendChild(div);
+            }
+
+            UpdateStatistics(totalCount, goodCount);
+        }
+
+        function UpdateStatistics(totalCount = 0, goodCount = 0) {
+            if (totalCount === 0) return;
+
+            statisticsDiv.innerHTML = `Total: ${totalCount} - Good: ${goodCount} - Bad: ${totalCount - goodCount}`;
+            statisticsDiv.classList.remove('hide');
+            crashesCount.innerHTML = `Crashes Count: ${totalCount}`;
+            crashesCount.classList.remove('hide');
+        }
+
+        function copyResultsToClipboard() {
+            const results = Array.from(document.querySelectorAll('#results .crash')).map(div => div.textContent).join('\n');
+            navigator.clipboard.writeText(results).then(() => {
+                alert('Results copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        }
+    </script>
+</body>
+</html>
